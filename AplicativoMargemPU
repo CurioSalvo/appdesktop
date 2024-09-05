@@ -1,0 +1,187 @@
+---Esse aplicativo deve ser capaz de ajudar o técnico a controlar por si mesmo seu planejamento e produção.
+---Cada serviço realizado tem um peso na produção chamado de P.U. sendo eles: 
+---Manutenção: 0.75
+---Troca de Equipamento: 0.80
+---Migração: 0.80
+---Retirada: 0.6
+---Instalação: 1.0
+---Mudança de Endereço: 1.0
+---Revisita -7.5
+---Revisita Instalação:-17
+
+---O aplicativo devera seguir um calendario, onde a cada dia do calendário o usuario deverá colocar os serviços realizados.
+---Tambem deve ter um botao onde será possivel calcular o peso de uma revisita. cada revisita tem o peso de 10 manutenções. 
+---os serviços devem ser somados e cada revisita tem o peso de 7,5 P.U. nao podendo ficar acima de 10% em relação ao total de manutenções.
+---O aplicativo devera apresentar uma lista de todos os dias e  suas devidas produções, assim como resultado parcial.
+---A média de P.U deve ser a soma de todos os serviços dividido pelos dias trabalhados.
+---A Superação é o ponto maximo da produção. onde a Média de P.U deve ser acima de 3.3
+---Os dias de folga semanal não sao considerados na média. assim como faltas justificadas, e também folgas trabalhadas.
+---Então o aplicativo devera ter um botão onde podera ser adicionado essa informação. 
+---Sendo assim o usuario devera dia após dia atualizar sua produção.
+---Assim como obter informações junto a seu supervisor a respeito de suas revisitas recebidas e atualizar no aplicativo.
+
+
+
+import tkinter as tk
+from tkinter import messagebox, ttk
+import sqlite3
+
+def setup_database():
+    conn = sqlite3.connect('servicos.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS registros (
+            id INTEGER PRIMARY KEY,
+            data TEXT,
+            manutencoes INTEGER,
+            retiradas INTEGER,
+            trocas INTEGER,
+            ativacoes INTEGER,
+            mudancas INTEGER,
+            folga BOOLEAN
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+def salvar_dados():
+    data = entry_data.get()
+    manutencoes = int(entry_manutencoes.get())
+    retiradas = int(entry_retiradas.get())
+    trocas = int(entry_trocas.get())
+    ativacoes = int(entry_ativacoes.get())
+    mudancas = int(entry_mudancas.get())
+    folga = var_folga.get()
+
+    conn = sqlite3.connect('servicos.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO registros (data, manutencoes, retiradas, trocas, ativacoes, mudancas, folga)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (data, manutencoes, retiradas, trocas, ativacoes, mudancas, folga))
+    conn.commit()
+    conn.close()
+
+    messagebox.showinfo("Sucesso", "Dados salvos com sucesso!")
+
+def calcular_totais():
+    conn = sqlite3.connect('servicos.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT SUM(manutencoes * 0.75 + retiradas * 0.6 + ativacoes * 1 + mudancas * 1) AS total_valor,
+               COUNT(*) - SUM(folga) AS dias_trabalhados
+        FROM registros
+    ''')
+    result = cursor.fetchone()
+    total_valor = result[0] or 0
+    dias_trabalhados = result[1] or 0
+    conn.close()
+
+    if dias_trabalhados > 0:
+        media_diaria = total_valor / dias_trabalhados
+    else:
+        media_diaria = 0
+
+    return total_valor, dias_trabalhados, media_diaria
+
+def mostrar_previa():
+    total_valor, dias_trabalhados, media_diaria = calcular_totais()
+
+    preview_window = tk.Toplevel(app)
+    preview_window.title("Prévia dos Totais")
+
+    tk.Label(preview_window, text=f"Total Valor: {total_valor:.2f}").pack()
+    tk.Label(preview_window, text=f"Dias Trabalhados: {dias_trabalhados}").pack()
+    tk.Label(preview_window, text=f"Média Diária: {media_diaria:.2f}").pack()
+
+def mostrar_dados():
+    conn = sqlite3.connect('servicos.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT id, data FROM registros ORDER BY data')
+    registros = cursor.fetchall()
+    conn.close()
+
+    dados_window = tk.Toplevel(app)
+    dados_window.title("Dados de Serviços")
+
+    def carregar_dados():
+        selected_data = combobox_data.get()
+        conn = sqlite3.connect('servicos.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM registros WHERE data = ?', (selected_data,))
+        registros = cursor.fetchall()
+        conn.close()
+
+        for row in tree.get_children():
+            tree.delete(row)
+
+        for registro in registros:
+            tree.insert("", tk.END, values=registro[1:])
+
+    def excluir_registro():
+        selected_data = combobox_data.get()
+        conn = sqlite3.connect('servicos.db')
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM registros WHERE data = ?', (selected_data,))
+        conn.commit()
+        conn.close()
+
+        messagebox.showinfo("Sucesso", "Registro excluído com sucesso!")
+        carregar_dados()
+
+    tree = ttk.Treeview(dados_window, columns=("data", "manutencoes", "retiradas", "trocas", "ativacoes", "mudancas", "folga"), show='headings')
+    tree.heading("data", text="Data")
+    tree.heading("manutencoes", text="Manutenções")
+    tree.heading("retiradas", text="Retiradas")
+    tree.heading("trocas", text="Trocas")
+    tree.heading("ativacoes", text="Ativações")
+    tree.heading("mudancas", text="Mudanças")
+    tree.heading("folga", text="Folga")
+
+    combobox_data = ttk.Combobox(dados_window)
+    combobox_data['values'] = [registro[1] for registro in registros]
+    combobox_data.pack()
+    combobox_data.bind("<<ComboboxSelected>>", lambda e: carregar_dados())
+
+    tk.Button(dados_window, text="Excluir Registro", command=excluir_registro).pack()
+    tk.Button(dados_window, text="Carregar Dados", command=carregar_dados).pack()
+
+    tree.pack()
+
+app = tk.Tk()
+app.title("Registro de Serviços")
+
+tk.Label(app, text="Data (YYYY-MM-DD)").pack()
+entry_data = tk.Entry(app)
+entry_data.pack()
+
+tk.Label(app, text="Manutenções").pack()
+entry_manutencoes = tk.Entry(app)
+entry_manutencoes.pack()
+
+tk.Label(app, text="Retiradas de Aparelho").pack()
+entry_retiradas = tk.Entry(app)
+entry_retiradas.pack()
+
+tk.Label(app, text="Trocas de ONU").pack()
+entry_trocas = tk.Entry(app)
+entry_trocas.pack()
+
+tk.Label(app, text="Ativações").pack()
+entry_ativacoes = tk.Entry(app)
+entry_ativacoes.pack()
+
+tk.Label(app, text="Mudanças de Endereço").pack()
+entry_mudancas = tk.Entry(app)
+entry_mudancas.pack()
+
+var_folga = tk.BooleanVar()
+tk.Checkbutton(app, text="Dia de Folga", variable=var_folga).pack()
+
+tk.Button(app, text="Salvar Dados", command=salvar_dados).pack()
+tk.Button(app, text="Ver Prévia", command=mostrar_previa).pack()
+tk.Button(app, text="Mostrar Dados", command=mostrar_dados).pack()
+
+setup_database()
+app.mainloop()
+
